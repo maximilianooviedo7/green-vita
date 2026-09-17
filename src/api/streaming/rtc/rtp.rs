@@ -16,8 +16,10 @@ const MAX_PENDING_AUDIO_PACKETS: usize = 32;
 const MAX_H264_ACCESS_UNIT_BYTES: usize = 2 * 1024 * 1024;
 const VIDEO_RTP_CLOCK_RATE: u32 = 90_000;
 const AUDIO_MAX_LATE_PACKETS: u16 = 32;
-const LOW_FPS_DAMAGE_LIMIT: u8 = 8;
-const HIGH_FPS_DAMAGE_LIMIT: u8 = 3;
+// Anti-arrastre mode: one damaged H264 frame invalidates the predictive chain.
+// Resync immediately and wait for an IDR instead of displaying corrupted P-frames.
+const LOW_FPS_DAMAGE_LIMIT: u8 = 1;
+const HIGH_FPS_DAMAGE_LIMIT: u8 = 1;
 
 #[derive(Default)]
 pub(super) struct VideoSampleStats {
@@ -241,7 +243,6 @@ impl VideoRtp {
             } => (data, marker_sequence),
         };
         let completed = self.pending.take().expect("assembled pending video frame");
-        // Record both average and worst-case RTP assembly time for the stream HUD.
         let assembly_us = completed.first_packet_at.elapsed().as_micros() as u64;
         crate::streaming::video::metrics::METRICS
             .rtp_assembly_sum_us
@@ -277,8 +278,6 @@ impl VideoRtp {
                 unit.resolution, STREAM_WIDTH, STREAM_HEIGHT
             );
             self.stream_too_large = true;
-            // Flush queued decoder work once, then wait for a compatible IDR instead of feeding
-            // frames that the Vita hardware cannot decode.
             *keyframe_requested = true;
             if !self.waiting_for_keyframe {
                 worker.begin_resync();
@@ -297,7 +296,6 @@ impl VideoRtp {
             self.stream_too_large = false;
         }
         if self.waiting_for_keyframe {
-            // Later keyframes may contain only IDR; AVCDEC retains SPS/PPS across resyncs.
             if !unit.has_idr {
                 *keyframe_requested = true;
                 stats.dropped = stats.dropped.saturating_add(1);
@@ -310,8 +308,13 @@ impl VideoRtp {
         }
 
         if !worker.submit_access_unit(data.to_vec(), self.source_frame_duration_us) {
-            eprintln!("Video decoder queue is full; continuing while requesting a keyframe");
+            eprintln!("Video decoder queue is full; resyncing to avoid predictive-frame smearing");
             *keyframe_requested = true;
+            if !self.waiting_for_keyframe {
+                worker.begin_resync();
+            }
+            self.waiting_for_keyframe = true;
+            self.damage_score = 0;
             stats.dropped = stats.dropped.saturating_add(1);
         }
         stats
