@@ -16,10 +16,10 @@ const MAX_PENDING_AUDIO_PACKETS: usize = 32;
 const MAX_H264_ACCESS_UNIT_BYTES: usize = 2 * 1024 * 1024;
 const VIDEO_RTP_CLOCK_RATE: u32 = 90_000;
 const AUDIO_MAX_LATE_PACKETS: u16 = 32;
-// Microcortes experiment: tolerate one damage event before a full resync.
-// Keyframes are still requested on every loss; repeated damage waits for an IDR.
-const LOW_FPS_DAMAGE_LIMIT: u8 = 2;
-const HIGH_FPS_DAMAGE_LIMIT: u8 = 2;
+// Anti-arrastre mode: one damaged H264 frame invalidates the predictive chain.
+// Resync immediately and wait for an IDR instead of displaying corrupted P-frames.
+const LOW_FPS_DAMAGE_LIMIT: u8 = 1;
+const HIGH_FPS_DAMAGE_LIMIT: u8 = 1;
 
 #[derive(Default)]
 pub(super) struct VideoSampleStats {
