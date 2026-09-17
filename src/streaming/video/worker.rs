@@ -90,6 +90,7 @@ impl VideoDecodeWorker {
         let pending_limit = MIN_PENDING_ACCESS_UNITS + extra_capacity as usize;
         if self.access_units.len() >= pending_limit {
             metrics::METRICS.queue_full.fetch_add(1, Ordering::Relaxed);
+            super::diagnostics::QUEUE_FULL.fetch_add(1, Ordering::Relaxed);
             return false;
         }
 
@@ -102,6 +103,7 @@ impl VideoDecodeWorker {
             Ok(()) => true,
             Err(TrySendError::Full(_)) => {
                 metrics::METRICS.queue_full.fetch_add(1, Ordering::Relaxed);
+            super::diagnostics::QUEUE_FULL.fetch_add(1, Ordering::Relaxed);
                 false
             }
             Err(TrySendError::Disconnected(_)) => false,
@@ -229,6 +231,7 @@ fn decode_queued_access_unit(
     match decode_result {
         Ok(Ok(true)) => {
             metrics::METRICS.decoded.fetch_add(1, Ordering::Relaxed);
+            super::diagnostics::DECODED.mark();
             let (texture_index, generation) = direct_target.publish();
             metrics::METRICS.pipeline_age_us.store(
                 access_unit.queued_at.elapsed().as_micros() as u64,

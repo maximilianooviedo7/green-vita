@@ -243,6 +243,7 @@ impl VideoRtp {
             } => (data, marker_sequence),
         };
         let completed = self.pending.take().expect("assembled pending video frame");
+        crate::streaming::video::diagnostics::ASSEMBLED.mark();
         let assembly_us = completed.first_packet_at.elapsed().as_micros() as u64;
         crate::streaming::video::metrics::METRICS
             .rtp_assembly_sum_us
@@ -321,6 +322,7 @@ impl VideoRtp {
     }
 
     fn record_damage(&mut self, worker: &VideoDecodeWorker) {
+        crate::streaming::video::diagnostics::DAMAGE.fetch_add(1, Ordering::Relaxed);
         if self.waiting_for_keyframe {
             return;
         }

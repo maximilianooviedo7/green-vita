@@ -32,6 +32,7 @@ pub(crate) const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
 
 pub async fn run(mut app: App) -> Result<()> {
     crate::streaming::video::reserve_decoder_cdram();
+    crate::streaming::video::diagnostics::start();
 
     let sdl = sdl2::init().map_err(anyhow::Error::msg)?;
     let video = sdl.video().map_err(anyhow::Error::msg)?;
@@ -59,6 +60,7 @@ pub async fn run(mut app: App) -> Result<()> {
 
     loop {
         let loop_started_at = Instant::now();
+        crate::streaming::video::diagnostics::RENDER_LOOP.mark();
         let mut egui_events = Vec::new();
         let mut direct_commands = Vec::new();
         if app.title_search_requested && !vita_ime_active {

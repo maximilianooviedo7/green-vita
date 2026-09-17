@@ -84,6 +84,7 @@ impl VitaSurface {
             .presented
             .fetch_add(1, Ordering::Relaxed);
         self.last_frame_id = frame_id;
+        crate::streaming::video::diagnostics::PRESENTED.mark();
         Ok(())
     }
 
