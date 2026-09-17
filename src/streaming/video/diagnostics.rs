@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 static START: OnceLock<Instant> = OnceLock::new();
 static STARTED: OnceLock<()> = OnceLock::new();
+pub(crate) static CATCH_UP: AtomicU64 = AtomicU64::new(0);
 pub(crate) static DAMAGE: AtomicU64 = AtomicU64::new(0);
 pub(crate) static QUEUE_FULL: AtomicU64 = AtomicU64::new(0);
 
@@ -61,8 +62,8 @@ fn record() -> std::io::Result<()> {
     std::fs::create_dir_all("ux0:data/xcloud-rust")?;
     let file = std::fs::File::create("ux0:data/xcloud-rust/microcortes-diagnostico.csv")?;
     let mut out = BufWriter::new(file);
-    writeln!(out, "# GreenVita diagnostic based on test 3; counts cumulative; gaps/ages in microseconds; pauses and menu transitions also create gaps")?;
-    writeln!(out, "elapsed_us,assembled,assembly_gap_max_us,assembly_idle_us,decoded,decode_gap_max_us,decode_idle_us,presented,present_gap_max_us,present_idle_us,render_loops,render_gap_max_us,render_idle_us,damage_events,queue_full,resyncs,resets,last_decode_us,last_pipeline_age_us")?;
+    writeln!(out, "# GreenVita diagnostic catch-up test 5; counts cumulative; gaps/ages in microseconds; pauses and menu transitions also create gaps")?;
+    writeln!(out, "elapsed_us,assembled,assembly_gap_max_us,assembly_idle_us,decoded,decode_gap_max_us,decode_idle_us,presented,present_gap_max_us,present_idle_us,render_loops,render_gap_max_us,render_idle_us,damage_events,queue_full,resyncs,resets,last_decode_us,last_pipeline_age_us,catch_up_decoded")?;
     for row in 0..6000 {
         std::thread::sleep(Duration::from_millis(100));
         let now = START.get().expect("diagnostic clock").elapsed().as_micros() as u64 + 1;
@@ -71,11 +72,11 @@ fn record() -> std::io::Result<()> {
         let p = PRESENTED.sample(now);
         let r = RENDER_LOOP.sample(now);
         let m = &super::metrics::METRICS;
-        writeln!(out, "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+        writeln!(out, "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             now, a.0, a.1, a.2, d.0, d.1, d.2, p.0, p.1, p.2, r.0, r.1, r.2,
             DAMAGE.load(Ordering::Relaxed), QUEUE_FULL.load(Ordering::Relaxed),
             m.resyncs.load(Ordering::Relaxed), m.resets.load(Ordering::Relaxed),
-            m.decode_us.load(Ordering::Relaxed), m.pipeline_age_us.load(Ordering::Relaxed))?;
+            m.decode_us.load(Ordering::Relaxed), m.pipeline_age_us.load(Ordering::Relaxed), CATCH_UP.load(Ordering::Relaxed))?;
         if row % 10 == 9 { out.flush()?; }
     }
     out.flush()

@@ -172,6 +172,7 @@ fn run_decode_loop(
                     &latest_result,
                     &result_ready,
                     access_unit,
+                    access_units.len() >= 2,
                     &direct_output,
                 );
             }
@@ -186,6 +187,7 @@ fn decode_queued_access_unit(
     latest_result: &Mutex<Option<DecodeResult>>,
     result_ready: &tokio::sync::Notify,
     access_unit: QueuedAccessUnit,
+    catching_up: bool,
     direct_output: &DirectVideoOutput,
 ) {
     if access_unit.generation != generation.load(Ordering::Acquire) {
@@ -206,19 +208,36 @@ fn decode_queued_access_unit(
         }
     }
 
-    let Some(direct_target) = direct_output.lock_decode_target() else {
-        // Do not decode until the renderer has registered its two GXM textures. There is no
-        // legacy output buffer to copy from anymore.
-        metrics::METRICS.skipped.fetch_add(1, Ordering::Relaxed);
-        return;
+    // Never discard compressed H264 data to catch up: decode it in order into
+    // private memory, retaining the predictive chain, and omit only presentation.
+    let scratch = if catching_up {
+        decoder.as_ref().and_then(HwVideoDecoder::catch_up_target)
+    } else {
+        None
     };
+    let direct_target = if scratch.is_none() {
+        direct_output.lock_decode_target()
+    } else {
+        None
+    };
+    let target = match (scratch, direct_target.as_ref()) {
+        (Some(target), _) => target,
+        (None, Some(guard)) => guard.target,
+        (None, None) => {
+            metrics::METRICS.skipped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+    };
+    if access_unit.generation != generation.load(Ordering::Acquire) {
+        return;
+    }
     // Measure the hardware call and contain an unexpected decoder panic inside its worker.
     let decode_started_at = Instant::now();
     let decode_result = catch_unwind(AssertUnwindSafe(|| {
         decoder
             .as_mut()
             .expect("decoder recreated above")
-            .decode(&access_unit.data, direct_target.target)
+            .decode(&access_unit.data, target)
     }));
     metrics::METRICS.decode_us.store(
         decode_started_at.elapsed().as_micros() as u64,
@@ -232,6 +251,10 @@ fn decode_queued_access_unit(
         Ok(Ok(true)) => {
             metrics::METRICS.decoded.fetch_add(1, Ordering::Relaxed);
             super::diagnostics::DECODED.mark();
+            let Some(direct_target) = direct_target else {
+                super::diagnostics::CATCH_UP.fetch_add(1, Ordering::Relaxed);
+                return;
+            };
             let (texture_index, generation) = direct_target.publish();
             metrics::METRICS.pipeline_age_us.store(
                 access_unit.queued_at.elapsed().as_micros() as u64,

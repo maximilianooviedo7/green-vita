@@ -81,6 +81,7 @@ impl Drop for AvcdecDecoder {
 pub struct HwVideoDecoder {
     decoder: AvcdecDecoder,
     _frame_memory: CdramBlock,
+    catch_up_memory: Option<CdramBlock>,
     _library: AvcdecLibrary,
     width: u32,
     height: u32,
@@ -122,14 +123,28 @@ impl HwVideoDecoder {
             }
             let decoder = AvcdecDecoder(decoder_control);
 
+            // A private output buffer lets us decode stale frames without touching
+            // either texture owned by the renderer. Fall back if CDRAM is tight.
+            let catch_up_memory = CdramBlock::allocate(
+                "xcloud_catch_up", config.output_width * config.output_height * OUTPUT_BYTES_PER_PIXEL,
+            ).ok();
             Ok(Self {
                 decoder,
+                catch_up_memory,
                 _frame_memory: frame_memory,
                 _library: library,
                 width: config.output_width,
                 height: config.output_height,
             })
         }
+    }
+
+    pub(super) fn catch_up_target(&self) -> Option<VideoTextureTarget> {
+        self.catch_up_memory.as_ref().map(|memory| VideoTextureTarget {
+            ptr: memory.ptr as usize,
+            pitch: self.width * OUTPUT_BYTES_PER_PIXEL,
+            capacity: self.width * self.height * OUTPUT_BYTES_PER_PIXEL,
+        })
     }
 
     /// Decodes one Access Unit. Returns `false` if the hardware buffered it without producing a picture yet.
