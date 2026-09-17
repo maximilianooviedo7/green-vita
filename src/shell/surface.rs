@@ -32,6 +32,8 @@ impl VitaSurface {
         let mut canvas = window
             .into_canvas()
             .accelerated()
+            // Pace presentation to the display refresh (microcortes test 3).
+            .present_vsync()
             .build()
             .map_err(anyhow::Error::msg)
             .context("failed to create SDL Vita renderer")?;
