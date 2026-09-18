@@ -18,7 +18,9 @@ use std::time::Duration;
 
 // Let a short render hitch absorb at most two 30 fps intervals. Together with the
 // frame already pending for presentation, this caps the microbuffer at three frames.
-const MAX_PENDING_TEXTURE_WAIT: Duration = Duration::from_millis(67);
+// OP6: waiting a full 67 ms here can make controls feel detached from the picture.
+// Keep only a short presentation cushion; if rendering stalls, favor freshness.
+const MAX_PENDING_TEXTURE_WAIT: Duration = Duration::from_millis(25);
 
 #[derive(Clone, Copy)]
 pub(crate) struct VideoTextureTarget {
