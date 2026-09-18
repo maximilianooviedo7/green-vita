@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+      - op6-low-latency
 
 permissions:
   contents: write
@@ -67,16 +68,16 @@ jobs:
             }
 
       - name: Build VPK
-        if: github.event_name == 'workflow_dispatch' || steps.release.outputs.exists == 'false'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/op6-low-latency' || steps.release.outputs.exists == 'false'
         env:
           RUSTFLAGS: "-C target-feature=-neon"
         run: cargo vita build vpk --release
 
       - name: Upload test VPK
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/op6-low-latency'
         uses: actions/upload-artifact@v4
         with:
-          name: green-vita-test-${{ github.run_number }}
+          name: green-vita-op6-${{ github.run_number }}
           path: target/armv7-sony-vita-newlibeabihf/release/green-vita.vpk
           if-no-files-found: error
           retention-days: 14
