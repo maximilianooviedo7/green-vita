@@ -10,8 +10,12 @@ use std::time::Instant;
 
 // Faster streams arrive in larger bursts. Keep the normal 30 fps limit small, but
 // allow enough room for roughly 100 ms of compressed video near the observed 55 fps.
-const MIN_PENDING_ACCESS_UNITS: usize = 2;
-const MAX_PENDING_ACCESS_UNITS: usize = 6;
+const MIN_PENDING_ACCESS_UNITS: usize = 1;
+const MAX_PENDING_ACCESS_UNITS: usize = 3;
+// OP6: once an access unit has spent more than roughly two 60 fps intervals queued,
+// decoding it only increases glass-to-glass/input latency. Drop it and let the RTP
+// resync/catch-up path move us toward the newest decodable picture.
+const MAX_QUEUED_ACCESS_UNIT_AGE_US: u128 = 34_000;
 
 struct QueuedAccessUnit {
     data: Vec<u8>,
@@ -187,6 +191,13 @@ fn decode_queued_access_unit(
     direct_output: &DirectVideoOutput,
 ) {
     if access_unit.generation != generation.load(Ordering::Acquire) {
+        return;
+    }
+
+    // OP6 low-latency guard: do not spend scarce Vita decoder time on compressed
+    // video that is already stale. This bounds backlog growth during short bursts.
+    if access_unit.queued_at.elapsed().as_micros() > MAX_QUEUED_ACCESS_UNIT_AGE_US {
+        metrics::METRICS.skipped.fetch_add(1, Ordering::Relaxed);
         return;
     }
 
